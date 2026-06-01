@@ -10,13 +10,14 @@ BluSets-style spell setting with a BluCheck-inspired ImGui UI and a job-trait pl
 - Derived from atom0s' BluSets / BluCheck (Ashita Development Team). Licensed GPL-3.0.
 
 ## Development layout (dev vs runtime are kept separate)
-- **Development / git repo (source of truth):** `E:\AshitaDev\bluforge`. All git work — commits, pushes, the
-  workflow, README/LICENSE/docs, `build.ps1`, `deploy.ps1` — happens here. This is the only checkout.
-- **In-game runtime copy:** the Ashita `addons\bluforge` directory holds **only the files needed to run** the
+- **Development / git repo (source of truth):** this repository checkout. All git work — commits, pushes, the
+  workflow, README/LICENSE/docs, `build.ps1`, `deploy.ps1` — happens here. Keep the checkout outside the live
+  Ashita install so development stays separate from what runs in-game.
+- **In-game runtime copy:** the Ashita `addons/bluforge` directory holds **only the files needed to run** the
   addon (`bluforge.lua`, `blu.lua`, `ui.lua`, `data/bludata.lua`, `data/spells.json`). It is **not** a git
   checkout and should never contain `.git`, docs, or tooling.
-- After changing code in the dev repo, run `.\deploy.ps1` to copy the runtime files into the addons directory
-  so the changes take effect in-game. Do all editing in the dev repo, never in the runtime copy.
+- After changing code, run `deploy.ps1 -Target <Ashita>\addons\bluforge` to copy the runtime files into the
+  addons directory so the changes take effect in-game. Do all editing in the repo, never in the runtime copy.
 
 ## Compatibility (important)
 Tested **only on retail FFXI with Ashita v4.30**. Memory signatures (in `blu.lua`) and packet behavior may
@@ -48,10 +49,9 @@ LuaJIT is available. Syntax-check: `luajit -bl <file> /dev/null`. The trait engi
 minimal `T` stub (sugar table). UI/packet behavior can only be confirmed in-game.
 
 ## Git / release workflow
-- **Auth:** a dedicated, passphrase-less **deploy key** (`~/.ssh/bluforge_deploy`) is registered on the repo
-  with write access. SSH alias `github-bluforge` in `~/.ssh/config` (`IdentitiesOnly yes`); remote `origin` =
-  `git@github-bluforge:BlackmoreKnight/bluforge.git`. So `git push` works with no token/passphrase prompt.
-  Network git commands must run with the **sandbox disabled**.
+- **Auth:** pushing uses whatever git authentication the contributor has configured locally (an SSH key, a
+  per-repo deploy key, or a credential helper) — none of which lives in this repo. In an AI sandbox, network
+  git commands must run with the **sandbox disabled**.
 - **Releases are automated.** `.github/workflows/release.yml` triggers on any `v*` tag push, builds a
   runtime-only zip (the 3 Lua files + `data/`, under a `bluforge/` folder, forward-slash paths) and publishes a
   release via the `gh` CLI using the built-in `GITHUB_TOKEN`. No PAT, no third-party actions.

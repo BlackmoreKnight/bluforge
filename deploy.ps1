@@ -4,19 +4,19 @@
     directory so code changes take effect in-game.
 
 .DESCRIPTION
-    Development is kept in this repo (E:\AshitaDev\bluforge); the in-game addon
-    folder holds only the files required to run. This script syncs the runtime
-    files over, creating the target (and its data subfolder) if needed.
+    Development is kept in this repo; the in-game addon folder holds only the
+    files required to run. This script syncs the runtime files over, creating
+    the target (and its data subfolder) if needed.
 
 .PARAMETER Target
-    The in-game addon directory to deploy to. Defaults to E:\Ashita\addons\bluforge.
+    The in-game addon directory to deploy to, e.g. <your Ashita>\addons\bluforge.
 
 .EXAMPLE
-    .\deploy.ps1
-    .\deploy.ps1 -Target "D:\Ashita\addons\bluforge"
+    .\deploy.ps1 -Target "C:\Ashita\addons\bluforge"
 #>
 param(
-    [string]$Target = "E:\Ashita\addons\bluforge"
+    [Parameter(Mandatory = $true)]
+    [string]$Target
 )
 
 $ErrorActionPreference = "Stop"
