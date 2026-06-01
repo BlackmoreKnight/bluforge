@@ -21,6 +21,12 @@ spell-set management of [BluSets](https://github.com/AshitaXI/Addons) with an in
 - **Spell information** — element, MP cost, cast/recast, level, set cost, the traits a spell contributes to, and the
   monsters/zones a spell can be learned from.
 
+## Compatibility
+
+> **Tested only on retail FFXI with Ashita v4.30.** It has not been tested on private servers or other Ashita
+> versions. Memory signatures and packet behavior (used for reading set points and applying spells) may differ
+> elsewhere, so results on other setups are not guaranteed.
+
 ## Installation
 
 Copy the `bluforge` folder into your Ashita `addons` directory, then load it in-game:
