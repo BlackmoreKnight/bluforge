@@ -267,9 +267,13 @@ end
 * Spending 100 and 1200 total Blue Mage job points each grants a gift that
 * raises equipped Blue Magic job traits by one tier, so the level is 0, 1 or 2.
 *
+* Job points only apply while BLU is the main job; as a sub job there is no
+* trait bonus regardless of job points spent, so this returns 0.
+*
 * @return {number} The detected gift level (0-2).
 --]]
 function ui.get_trait_gifts()
+    if (not blu.is_blu_main()) then return 0; end
     local spent = AshitaCore:GetMemoryManager():GetPlayer():GetJobPointsSpent(BLU_JOB_ID);
     local gifts = 0;
     if (spent >= 100) then gifts = gifts + 1; end
@@ -1306,8 +1310,12 @@ function ui.render_tab_traits()
     imgui.SameLine();
     imgui.TextColored(COLOR_VALUE, ('+%d tier'):fmt(gifts));
     imgui.SameLine();
-    imgui.TextColored(COLOR_DIM, ('(auto-detected from %d BLU job points spent)'):fmt(
-        AshitaCore:GetMemoryManager():GetPlayer():GetJobPointsSpent(BLU_JOB_ID)));
+    if (blu.is_blu_main()) then
+        imgui.TextColored(COLOR_DIM, ('(auto-detected from %d BLU job points spent)'):fmt(
+            AshitaCore:GetMemoryManager():GetPlayer():GetJobPointsSpent(BLU_JOB_ID)));
+    else
+        imgui.TextColored(COLOR_DIM, '(none - job point traits apply only when BLU is your main job)');
+    end
     imgui.TextColored(COLOR_DIM, 'Gifts at 100 and 1200 job points each raise eligible traits by one tier (+8 points).');
     imgui.Separator();
 
