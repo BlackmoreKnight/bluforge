@@ -1,0 +1,8 @@
+# Ashita writes addon configuration and saved spell sets under the install's
+# config directory, not inside the addon folder, so there is normally nothing
+# to ignore here. Kept for editor/OS cruft.
+*.bak
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store
