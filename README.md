@@ -1,8 +1,9 @@
 # BluForge
 
 A Blue Mage focused [Ashita v4](https://www.ashitaxi.com/) addon for **Final Fantasy XI** that combines the
-spell-set management of [BluSets](https://github.com/AshitaXI/Addons) with an in-game ImGui interface inspired by
-[BluCheck](https://github.com/AshitaXI/Addons), plus a job-trait planner.
+spell-set management of [BluSets](https://github.com/AshitaXI/Ashita-v4beta/tree/main/addons/blusets) with an
+in-game ImGui interface inspired by [BluCheck](https://github.com/AshitaXI/Ashita-v4beta/tree/main/addons/blucheck),
+plus a job-trait planner.
 
 ## Features
 
@@ -55,7 +56,7 @@ Copy the `bluforge` folder into your Ashita `addons` directory, then load it in-
 
 ## Credits
 
-- Derived from atom0s' **BluSets** and **BluCheck** addons (Ashita Development Team).
+- Derived from atom0s' [BluSets](https://github.com/AshitaXI/Ashita-v4beta/tree/main/addons/blusets) and [BluCheck](https://github.com/AshitaXI/Ashita-v4beta/tree/main/addons/blucheck) addons (Ashita Development Team).
 - Blue Magic set-point and job-trait data sourced from [BG-Wiki](https://www.bg-wiki.com/ffxi/Blue_Mage_Job_Traits).
 
 ## License
