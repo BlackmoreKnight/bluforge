@@ -44,6 +44,7 @@ local defaults = T{
     filter_known    = false,   -- "Known only" browser toggle.
     filter_settable = false,   -- "Hide non-settable" browser toggle.
     safe_mode       = true,    -- Apply using safe packet mode (vs. fast injection).
+    jp_setpoints    = 0,       -- "Blue Magic Point Bonus" job point set points (0-20, main job).
 };
 
 -- The number of Blue Magic set slots. (Matches the in-game maximum.)
@@ -241,6 +242,9 @@ local ui = {
     delay_text = { '0.30', },         -- Text-entry buffer for the delay.
     safe_mode  = { true, },           -- true = safe packet mode, false = fast injection.
 
+    -- Blue Magic Point Bonus job points (main-job set point bonus, 0-20).
+    jp_setpoints = { 0, },
+
     -- Transient status line shown at the bottom of the window.
     status        = '',
     status_expire = 0,
@@ -258,6 +262,7 @@ function ui.save_settings()
     ui.settings.filter_known    = ui.filter_known[1];
     ui.settings.filter_settable = ui.filter_settable[1];
     ui.settings.safe_mode       = ui.safe_mode[1];
+    ui.settings.jp_setpoints    = ui.jp_setpoints[1];
     settings.save();
 end
 
@@ -392,6 +397,7 @@ function ui.load()
     ui.filter_known[1]    = ui.settings.filter_known;
     ui.filter_settable[1] = ui.settings.filter_settable;
     ui.safe_mode[1]       = ui.settings.safe_mode;
+    ui.jp_setpoints[1]    = ui.settings.jp_setpoints;
 
     -- Keep the toggles in sync if the settings block changes (character
     -- switch, manual reload, etc.)..
@@ -399,6 +405,7 @@ function ui.load()
         ui.filter_known[1]    = s.filter_known;
         ui.filter_settable[1] = s.filter_settable;
         ui.safe_mode[1]       = s.safe_mode;
+        ui.jp_setpoints[1]    = s.jp_setpoints;
     end);
 
     -- Load the BLU "learned from" data..
@@ -473,20 +480,25 @@ function ui.max_points()
 
     local base = POINTS_BY_BRACKET[b];
 
-    -- Merits and job points only apply while BLU is the main job.
-    if (blu.is_blu_main()) then
-        base = base + math.min(AshitaCore:GetMemoryManager():GetPlayer():GetAssimilationPoints(), ASSIMILATION_MAX);
-
-        -- The job-point bonus is not readable per-category, so trust the game's
-        -- reported maximum to supply it, but only to raise the total (never below
-        -- the chart value) and never beyond the maximum possible bonus.
-        local mem = blu.get_max_points();
-        if (mem > base and mem <= base + JP_BONUS_MAX) then
-            return mem;
-        end
+    -- Sub job: chart base only (merits and job points do not apply).
+    if (not blu.is_blu_main()) then
+        return base;
     end
 
-    return base;
+    -- Main job: base + Assimilation merits (read live) + the Blue Magic Point
+    -- Bonus job points. The job-point bonus cannot be read from a specific job
+    -- point category via the SDK, so it comes from the persisted setting. If the
+    -- game's own reported maximum happens to be higher (some clients populate
+    -- it), trust that instead, bounded to the maximum possible.
+    local merits   = math.min(AshitaCore:GetMemoryManager():GetPlayer():GetAssimilationPoints(), ASSIMILATION_MAX);
+    local jp       = math.min(math.max(ui.jp_setpoints[1], 0), JP_BONUS_MAX);
+    local computed = base + merits + jp;
+
+    local mem = blu.get_max_points();
+    if (mem > computed and mem <= base + ASSIMILATION_MAX + JP_BONUS_MAX) then
+        return mem;
+    end
+    return computed;
 end
 
 --[[
@@ -1152,6 +1164,20 @@ function ui.render_controls()
         if (ui.selected_set[1] >= 1 and ui.saved_sets[ui.selected_set[1]] ~= nil) then
             ui.delete_set(ui.saved_sets[ui.selected_set[1]]);
         end
+    end
+
+    imgui.Separator();
+
+    -- Blue Magic Point Bonus job points (cannot be auto-detected from memory)..
+    imgui.PushItemWidth(120);
+    if (imgui.InputInt('JP set points (+0-20)', ui.jp_setpoints)) then
+        if (ui.jp_setpoints[1] < 0) then ui.jp_setpoints[1] = 0; end
+        if (ui.jp_setpoints[1] > JP_BONUS_MAX) then ui.jp_setpoints[1] = JP_BONUS_MAX; end
+        ui.save_settings();
+    end
+    imgui.PopItemWidth();
+    if (imgui.IsItemHovered()) then
+        imgui.SetTooltip('Set points from the "Blue Magic Point Bonus" job point category (0-20).\nThis cannot be read from the game, so set it to match your character.\nApplies on main job only; Assimilation merits are detected automatically.');
     end
 
     imgui.Separator();
