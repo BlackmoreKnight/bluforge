@@ -14,8 +14,30 @@ local settings = require 'settings';
 local blu      = require 'blu';
 local data     = require 'data.bludata';
 
--- BLU's job id, used for job point lookups.
+-- BLU's job id, used for job point/level lookups.
 local BLU_JOB_ID = 16;
+
+-- Blue Magic set limits by level, per the BG-Wiki Blue Mage chart. Indexed by
+-- 10-level bracket: [1] = levels 1-10, [2] = 11-20, ... [10] = 91-99.
+--   POINTS_BY_BRACKET : base set points available (main job base; sub job uses
+--                       the same per-level value, without merits/job points).
+--   SLOTS_BY_BRACKET  : number of Blue Magic spells that can be set.
+local POINTS_BY_BRACKET = { 10, 15, 20, 25, 30, 35, 40, 45, 50, 55 };
+local SLOTS_BY_BRACKET  = {  6,  8, 10, 12, 14, 16, 18, 20, 20, 20 };
+
+-- Additional main-job-only set points beyond the level base.
+local ASSIMILATION_MAX = 5;    -- Group 2 merit. (read live via GetAssimilationPoints)
+local JP_BONUS_MAX     = 20;   -- "Blue Magic Point Bonus" job point gift.
+
+--[[
+* Returns the 10-level bracket index (1-10) for a given level, or 0 if invalid.
+--]]
+local function level_bracket(level)
+    if (level == nil or level < 1) then return 0; end
+    local idx = math.floor((level - 1) / 10) + 1;
+    if (idx > 10) then idx = 10; end
+    return idx;
+end
 
 -- Persisted configuration defaults. (Spell browser toggles.)
 local defaults = T{
@@ -239,16 +261,59 @@ function ui.used_points()
 end
 
 --[[
-* Returns the maximum set points available for the current job, or -1 when the
-* value cannot be determined (player is not BLU main or sub).
+* Returns the effective Blue Mage level (main job level if BLU main, sub job
+* level if BLU sub), or 0 if the player is neither.
+--]]
+function ui.blu_level()
+    local player = AshitaCore:GetMemoryManager():GetPlayer();
+    if (blu.is_blu_main()) then
+        return player:GetMainJobLevel();
+    elseif (blu.is_blu_sub()) then
+        return player:GetSubJobLevel();
+    end
+    return 0;
+end
+
+--[[
+* Returns the maximum number of Blue Magic spells that can be set, based on the
+* current Blue Mage level. Falls back to MAX_SLOTS for planning when the player
+* is not BLU (no level to key from).
+--]]
+function ui.max_slots()
+    local b = level_bracket(ui.blu_level());
+    if (b == 0) then return MAX_SLOTS; end
+    return SLOTS_BY_BRACKET[b];
+end
+
+--[[
+* Returns the maximum set points available, or -1 when it cannot be determined
+* (player is not BLU main or sub).
+*
+* The base value comes from the level chart. On main job the Assimilation merit
+* (read live) is added, and the "Blue Magic Point Bonus" job point gift is added
+* using the game's reported maximum (which is not otherwise readable per
+* category), bounded to the known maximum so a bad memory read cannot inflate it.
 --]]
 function ui.max_points()
-    if (not blu.is_blu_main() and not blu.is_blu_sub()) then
-        return -1;
+    local b = level_bracket(ui.blu_level());
+    if (b == 0) then return -1; end
+
+    local base = POINTS_BY_BRACKET[b];
+
+    -- Merits and job points only apply while BLU is the main job.
+    if (blu.is_blu_main()) then
+        base = base + math.min(AshitaCore:GetMemoryManager():GetPlayer():GetAssimilationPoints(), ASSIMILATION_MAX);
+
+        -- The job-point bonus is not readable per-category, so trust the game's
+        -- reported maximum to supply it, but only to raise the total (never below
+        -- the chart value) and never beyond the maximum possible bonus.
+        local mem = blu.get_max_points();
+        if (mem > base and mem <= base + JP_BONUS_MAX) then
+            return mem;
+        end
     end
-    local max = blu.get_max_points();
-    if (max <= 0) then return -1; end
-    return max;
+
+    return base;
 end
 
 --[[
@@ -263,10 +328,12 @@ function ui.filled_slots()
 end
 
 --[[
-* Returns the first empty slot index, or nil if the set is full.
+* Returns the first empty slot index within the current slot limit, or nil if
+* the set is full.
 --]]
 function ui.first_free_slot()
-    for i = 1, MAX_SLOTS do
+    local limit = ui.max_slots();
+    for i = 1, limit do
         if (ui.set[i] == nil or ui.set[i] == 0) then return i; end
     end
     return nil;
@@ -280,6 +347,20 @@ function ui.is_in_set(id)
         if (ui.set[i] == id) then return true; end
     end
     return false;
+end
+
+--[[
+* Returns true if the given spell entry can be used at the current Blue Mage
+* level. When the player is not BLU (planning mode, level 0) all spells are
+* allowed since there is no level to gate against.
+*
+* @param {table} entry - A spell entry from ui.spells / ui.byid.
+--]]
+function ui.level_ok(entry)
+    if (entry == nil) then return false; end
+    local lvl = ui.blu_level();
+    if (lvl <= 0) then return true; end
+    return entry.level <= lvl;
 end
 
 --[[
@@ -298,9 +379,22 @@ function ui.assign(slot, id)
         return;
     end
 
+    -- Reject spells above the current Blue Mage level..
+    local entry = ui.byid[id];
+    if (entry ~= nil and not ui.level_ok(entry)) then
+        ui.set_status(('That spell requires BLU level %d (you are %d).'):fmt(entry.level, ui.blu_level()));
+        return;
+    end
+
     -- Reject duplicates..
     if (ui.is_in_set(id)) then
         ui.set_status('That spell is already in the set.');
+        return;
+    end
+
+    -- Reject slots beyond the current level's set limit..
+    if (slot > ui.max_slots()) then
+        ui.set_status(('That slot is locked at your level. (slot limit: %d)'):fmt(ui.max_slots()));
         return;
     end
 
@@ -463,9 +557,12 @@ function ui.apply_set()
         return;
     end
 
-    -- Build the slot -> reduced id list (the packet code expects id - 512)..
+    -- Build the slot -> reduced id list (the packet code expects id - 512).
+    -- Only include slots within the current level's set limit; slots beyond it
+    -- cannot be set and would be rejected by the game..
+    local slotmax = ui.max_slots();
     local plan = T{};
-    for i = 1, MAX_SLOTS do
+    for i = 1, slotmax do
         local id = ui.set[i];
         if (id ~= nil and id > 0) then
             plan[i] = id - 512;
@@ -602,9 +699,11 @@ function ui.render_status_bar()
     imgui.SameLine();
 
     -- Slot usage..
+    local slotmax = ui.max_slots();
     imgui.TextColored(COLOR_HEADER, 'Slots:');
     imgui.SameLine();
-    imgui.TextColored(COLOR_VALUE, ('%d / %d'):fmt(ui.filled_slots(), MAX_SLOTS));
+    local slotcol = (ui.filled_slots() > slotmax) and COLOR_UNKNOWN or COLOR_VALUE;
+    imgui.TextColored(slotcol, ('%d / %d'):fmt(ui.filled_slots(), slotmax));
 
     imgui.SameLine();
     imgui.TextColored(COLOR_DIM, '|');
@@ -647,7 +746,7 @@ function ui.render_browser()
     if (imgui.Button('Sort: Name')) then
         ui.spells:sort(function (a, b) return a.name < b.name; end);
     end
-    imgui.TextColored(COLOR_DIM, 'Green=known, Red=unknown (muted = n/a). * = in set.');
+    imgui.TextColored(COLOR_DIM, 'Green=known, Red=unknown (muted=n/a). * = in set. [Lv] = above level.');
 
     local search = ui.filter_text[1]:lower();
 
@@ -660,6 +759,7 @@ function ui.render_browser()
 
             local in_set    = ui.is_in_set(v.index);
             local settable  = v.cost > 0;
+            local usable    = ui.level_ok(v);
             -- Settable spells use bright green/red by known status; non-settable
             -- (n/a) spells use muted green/red so their known status still reads.
             local color;
@@ -670,14 +770,17 @@ function ui.render_browser()
             end
             imgui.PushStyleColor(ImGuiCol_Text, color);
             local cost_str = settable and ('%d'):fmt(v.cost) or 'n/a';
-            local label = ('[%02d] %s (%s)%s##b%d'):fmt(v.level, v.name, cost_str, in_set and ' *' or '', v.index);
-            if (imgui.Selectable(label, ui.selected_id == v.index)) then
+            -- Mark spells above the current BLU level and disable their selection.
+            local lvl_tag = usable and '' or ' [Lv]';
+            local label = ('[%02d] %s (%s)%s%s##b%d'):fmt(v.level, v.name, cost_str, in_set and ' *' or '', lvl_tag, v.index);
+            local flags = usable and ImGuiSelectableFlags_None or ImGuiSelectableFlags_Disabled;
+            if (imgui.Selectable(label, ui.selected_id == v.index, flags)) then
                 ui.selected_id = v.index;
             end
             imgui.PopStyleColor();
 
-            -- Double-click assigns to the first free slot..
-            if (imgui.IsItemHovered() and imgui.IsMouseDoubleClicked(0)) then
+            -- Double-click assigns to the first free slot. (usable spells only)
+            if (usable and imgui.IsItemHovered() and imgui.IsMouseDoubleClicked(0)) then
                 local slot = ui.first_free_slot();
                 if (slot ~= nil) then ui.assign(slot, v.index); end
             end
@@ -689,7 +792,8 @@ end
 * Renders the visual slot editor (mirrors the in-game set slots).
 --]]
 function ui.render_slots()
-    imgui.TextColored(COLOR_HEADER, 'Set Slots (1-20)');
+    local slotmax = ui.max_slots();
+    imgui.TextColored(COLOR_HEADER, ('Set Slots (%d available)'):fmt(slotmax));
 
     local sel = ui.selected_id;
     local can_place = (sel ~= -1) and not ui.is_in_set(sel);
@@ -698,10 +802,20 @@ function ui.render_slots()
         -- Two columns of ten slots..
         imgui.Columns(2, '##slotcols', false);
         for i = 1, MAX_SLOTS do
-            local id = ui.set[i];
+            local id     = ui.set[i];
+            local locked = i > slotmax;
             local label;
             local color;
-            if (id ~= nil and id > 0) then
+            if (locked) then
+                if (id ~= nil and id > 0) then
+                    local res = AshitaCore:GetResourceManager():GetSpellById(id);
+                    local name = res ~= nil and res.Name[1] or ('id %d'):fmt(id);
+                    label = ('%02d: %s (locked)'):fmt(i, name);
+                else
+                    label = ('%02d: (locked)'):fmt(i);
+                end
+                color = { 0.55, 0.35, 0.35, 1.0 };
+            elseif (id ~= nil and id > 0) then
                 local res = AshitaCore:GetResourceManager():GetSpellById(id);
                 local name = res ~= nil and res.Name[1] or ('id %d'):fmt(id);
                 label = ('%02d: %s (%d)'):fmt(i, name, data.get_cost(id));
@@ -712,7 +826,7 @@ function ui.render_slots()
             end
 
             imgui.PushStyleColor(ImGuiCol_Text, color);
-            if (imgui.Selectable(('%s##slot%d'):fmt(label, i))) then
+            if (imgui.Selectable(('%s##slot%d'):fmt(label, i)) and not locked) then
                 if (id ~= nil and id > 0) then
                     -- Clicking a filled slot clears it..
                     ui.clear_slot(i);
@@ -724,7 +838,9 @@ function ui.render_slots()
             imgui.PopStyleColor();
 
             if (imgui.IsItemHovered()) then
-                if (id ~= nil and id > 0) then
+                if (locked) then
+                    imgui.SetTooltip('This slot unlocks at a higher Blue Mage level.');
+                elseif (id ~= nil and id > 0) then
                     imgui.SetTooltip('Click to clear this slot.');
                 elseif (can_place) then
                     imgui.SetTooltip('Click to place the selected spell here.');
