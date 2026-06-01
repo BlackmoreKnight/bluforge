@@ -19,7 +19,7 @@
 
 addon.name      = 'bluforge';
 addon.author    = 'derived from atom0s BluSets/BluCheck';
-addon.version   = '1.1';
+addon.version   = '1.2';
 addon.desc      = 'Blue Mage spell set manager with an ImGui UI and trait planner.';
 addon.link      = 'https://ashitaxi.com/';
 
