@@ -25,7 +25,7 @@ jobs:
       - name: Build addon zip (runtime files only)
         run: |
           mkdir -p dist/bluforge/data
-          cp bluforge.lua blu.lua ui.lua dist/bluforge/
+          cp bluforge.lua ui.lua dist/bluforge/
           cp data/bludata.lua data/spells.json dist/bluforge/data/
           (cd dist && zip -r "../bluforge-${GITHUB_REF_NAME}.zip" bluforge)
           echo "--- archive contents ---"

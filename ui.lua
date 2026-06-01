@@ -11,7 +11,7 @@ local imgui    = require 'imgui';
 local chat     = require 'chat';
 local json     = require 'json';
 local settings = require 'settings';
-local blu      = require 'blu';
+local ffi      = require 'ffi';
 local data     = require 'data.bludata';
 
 -- BLU's job id, used for job point/level lookups.
@@ -47,6 +47,116 @@ local defaults = T{
 
 -- The number of Blue Magic set slots. (Matches the in-game maximum.)
 local MAX_SLOTS = 20;
+
+--==========================================================================
+-- Blue Mage memory / packet helpers
+--
+-- Folded in from the BluSets 'blu' helper (atom0s, GPL-3.0) so the addon has
+-- no dependency on the blusets addon being installed. Only the fast (custom
+-- packet injection) path is kept, since BluForge always applies sets in fast
+-- mode; the safe-mode client function and its signature are not needed.
+--==========================================================================
+
+-- FFI prototype for the BLU extended-equip packet. (0x0102 client to server)
+ffi.cdef[[
+    typedef struct packet_equipex_c2s_t {
+        uint16_t    IdSize;
+        uint16_t    Sync;
+        uint8_t     SpellId;
+        uint8_t     Unknown0000;
+        uint16_t    Unknown0001;
+        uint8_t     JobId;
+        uint8_t     IsSubJob;
+        uint16_t    Unknown0002;
+        uint8_t     Spells[20];
+        uint8_t     Unknown0003[132];
+    } packet_equipex_c2s_t;
+]];
+
+local blu = T{
+    -- Memory signatures, resolved once at load.
+    offset = ffi.cast('uint32_t*', ashita.memory.find(0, 0, 'C1E1032BC8B0018D????????????B9????????F3A55F5E5B', 10, 0)),
+    points = ffi.cast('uint8_t***', ashita.memory.find(0, 0, 'A1????????33C98A4E5E33D28A565D5F5E8950148948185B83C414C20400', 1, 0)),
+};
+
+-- Returns true if the player's main job is BLU.
+function blu.is_blu_main()
+    return AshitaCore:GetMemoryManager():GetPlayer():GetMainJob() == 16;
+end
+
+-- Returns true if the player's sub job is BLU.
+function blu.is_blu_sub()
+    return AshitaCore:GetMemoryManager():GetPlayer():GetSubJob() == 16;
+end
+
+-- Returns the maximum BLU set points reported by the game.
+function blu.get_max_points()
+    local max = blu.points[0][0][0x18];
+    return max or 0;
+end
+
+-- Returns the table of currently set BLU spells (reduced ids, 0 for empty).
+function blu.get_spells()
+    local ptr = ashita.memory.read_uint32(AshitaCore:GetPointerManager():Get('inventory'));
+    if (ptr == 0) then return T{}; end
+    ptr = ashita.memory.read_uint32(ptr);
+    if (ptr == 0) then return T{}; end
+    return T(ashita.memory.read_array((ptr + blu.offset[0]) + (blu.is_blu_main() and 0x04 or 0xA0), 0x14));
+end
+
+-- Builds a base extended-equip packet for the current job.
+local function blu_new_packet()
+    return ffi.new('packet_equipex_c2s_t', {
+        0x5302, 0x0000,
+        0,
+        0, 0,
+        0x10, blu.is_blu_sub() == true and 1 or 0,
+        0
+    });
+end
+
+-- Queues a reset of all BLU spells via custom packet injection. (fast)
+function blu.reset_all_spells()
+    local eqex = blu_new_packet();
+    local spells = blu.get_spells();
+    for x = 1, #spells do
+        eqex.Spells[x - 1] = spells[x];
+    end
+    local packet = ffi.string(eqex, ffi.sizeof('packet_equipex_c2s_t')):totable();
+    AshitaCore:GetPacketManager():AddOutgoingPacket(0x102, packet);
+end
+
+-- Queues a single BLU spell set (or unset, id == 0) via packet injection. (fast)
+function blu.set_spell(index, id)
+    if (index <= 0 or index > 20) then
+        print(chat.header(addon.name):append(chat.error('Failed to set spell; invalid index. (Index: %d, Id: %d)')):fmt(index, id));
+        return;
+    end
+
+    -- Reject setting a spell that is already assigned elsewhere..
+    local spells = blu.get_spells();
+    if (id ~= 0 and spells:hasval(id)) then
+        print(chat.header(addon.name):append(chat.error('Failed to set spell; already assigned. (Index: %d, Id: %d)')):fmt(index, id));
+        return;
+    end
+
+    -- Nothing to do when unsetting an already-empty slot..
+    local current = spells[index];
+    if (id == 0 and (current == nil or current == 0)) then
+        return;
+    end
+
+    local eqex = blu_new_packet();
+    if (id == 0) then
+        eqex.SpellId = 0;
+        eqex.Spells[index - 1] = spells[index];
+    else
+        eqex.SpellId = id;
+        eqex.Spells[index - 1] = id;
+    end
+    local packet = ffi.string(eqex, ffi.sizeof('packet_equipex_c2s_t')):totable();
+    AshitaCore:GetPacketManager():AddOutgoingPacket(0x102, packet);
+end
 
 local ui = {
     -- Main window state.
@@ -569,8 +679,7 @@ function ui.apply_set()
         end
     end
 
-    -- Use fast mode and the configured delay..
-    blu.mode = 'fast';
+    -- Spells are always applied in fast mode; clamp the configured delay.
     local delay = ui.fast_delay[1];
     if (delay < 0.1) then delay = 0.1; end
 

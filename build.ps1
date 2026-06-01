@@ -38,7 +38,6 @@ if ([string]::IsNullOrEmpty($Version)) {
 # Only the files required for the addon to run.
 $map = [ordered]@{
     "bluforge/bluforge.lua"     = "$root\bluforge.lua"
-    "bluforge/blu.lua"          = "$root\blu.lua"
     "bluforge/ui.lua"           = "$root\ui.lua"
     "bluforge/data/bludata.lua" = "$root\data\bludata.lua"
     "bluforge/data/spells.json" = "$root\data\spells.json"

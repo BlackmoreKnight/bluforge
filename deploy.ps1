@@ -25,7 +25,6 @@ $root = $PSScriptRoot
 # Only the files required for the addon to run.
 $files = @(
     "bluforge.lua",
-    "blu.lua",
     "ui.lua",
     "data\bludata.lua",
     "data\spells.json"

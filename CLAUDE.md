@@ -14,19 +14,18 @@ BluSets-style spell setting with a BluCheck-inspired ImGui UI and a job-trait pl
   workflow, README/LICENSE/docs, `build.ps1`, `deploy.ps1` — happens here. Keep the checkout outside the live
   Ashita install so development stays separate from what runs in-game.
 - **In-game runtime copy:** the Ashita `addons/bluforge` directory holds **only the files needed to run** the
-  addon (`bluforge.lua`, `blu.lua`, `ui.lua`, `data/bludata.lua`, `data/spells.json`). It is **not** a git
-  checkout and should never contain `.git`, docs, or tooling.
+  addon (`bluforge.lua`, `ui.lua`, `data/bludata.lua`, `data/spells.json`). It is **not** a git checkout and
+  should never contain `.git`, docs, or tooling.
 - After changing code, run `deploy.ps1 -Target <Ashita>\addons\bluforge` to copy the runtime files into the
   addons directory so the changes take effect in-game. Do all editing in the repo, never in the runtime copy.
 
 ## Compatibility (important)
-Tested **only on retail FFXI with Ashita v4.30**. Memory signatures (in `blu.lua`) and packet behavior may
-differ on private servers / other versions — do not assume otherwise.
+Tested **only on retail FFXI with Ashita v4.30**. The BLU memory signatures (the helpers near the top of
+`ui.lua`) and packet behavior may differ on private servers / other versions — do not assume otherwise.
 
 ## Files
 - `bluforge.lua` — addon entry: meta, events (load/command/packet_in/d3d_present), slash commands (`/bluforge`, `/bf`, `/bforge`).
-- `ui.lua` — all ImGui UI: spell browser, slot editor, save/load/apply, trait planner, spell info.
-- `blu.lua` — spell-setting library copied verbatim from BluSets (safe/fast packet modes, memory reads). Keep in sync with upstream; avoid editing.
+- `ui.lua` — all ImGui UI plus the inlined BLU memory/packet helpers (`blu` local, fast-mode only) vendored from BluSets' helper (atom0s). If upstream BluSets updates its signatures (e.g. a client patch), re-sync them here.
 - `data/bludata.lua` — set-point costs per spell + the job-trait table + `compute_traits()`.
 - `data/spells.json` — "learned from" data (zone → mobs), keyed by spell id. Zone keys may be numeric ids or zone-name strings.
 
