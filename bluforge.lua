@@ -1,5 +1,5 @@
 --[[
-* BluForge - Copyright (c) 2026
+* BluForge - Copyright (c) 2026 BlackmoreKnight
 *
 * A Blue Mage focused addon that combines the spell-set management of BluSets
 * with an in-game ImGui interface inspired by BluCheck.
@@ -18,10 +18,10 @@
 --]]
 
 addon.name      = 'bluforge';
-addon.author    = 'derived from atom0s BluSets/BluCheck';
+addon.author    = 'BlackmoreKnight, derived from atom0s BluSets/BluCheck';
 addon.version   = '1.2';
 addon.desc      = 'Blue Mage spell set manager with an ImGui UI and trait planner.';
-addon.link      = 'https://ashitaxi.com/';
+addon.link      = 'https://github.com/BlackmoreKnight/bluforge';
 
 require 'common';
 
