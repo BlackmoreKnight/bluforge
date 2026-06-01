@@ -6,9 +6,16 @@
 *
 *   costs  - The "set point" cost of each Blue Magic spell. (Extracted from the
 *            in-game spell-set menu values.)
-*   traits - The Blue Mage job trait table. Each trait lists the point
-*            thresholds for each tier and the spells that contribute points
-*            toward it. (Sourced from BG-Wiki: Blue_Mage_Job_Traits.)
+*   traits - The Blue Mage job trait table. Each trait lists its tiers and the
+*            spells (with the trait points each contributes). (Sourced from
+*            BG-Wiki: Blue_Mage_Job_Traits.)
+*
+* Tiers: every job trait tier requires 8 trait points (tier N = 8*N points),
+* and each Blue Mage Job Point trait-bonus gift adds +8 trait points (only when
+* the trait already has at least one point). The first value stored in each
+* tier entry is BG-Wiki's *minimum set-point cost* reference for that tier - it
+* is informational only and not used for the calculation; the calculation uses
+* the 8-points-per-tier rule and the number of tiers as the maximum tier.
 *
 * All spells are keyed by their full resource spell id (513+). When talking to
 * the equip packet code, ids are reduced by 512 (handled elsewhere).
@@ -17,6 +24,11 @@
 --]]
 
 local data = T{};
+
+-- Trait points required for each tier. Every tier needs 8 trait points, so
+-- tier N requires 8*N points.
+local POINTS_PER_TIER = 8;
+local ROMAN = { 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII' };
 
 --[[
 * Set point cost per Blue Magic spell. (full resource id -> cost)
@@ -50,12 +62,10 @@ data.costs = T{
 --[[
 * Blue Mage job trait table.
 *
-* tiers : ordered list of { points required, tier label }.
+* tiers : ordered list of { min_set_point_cost (BG-Wiki reference), label }. The
+*         number of entries is the trait's maximum tier; the stored numbers are
+*         reference only (see the file header - tiers use 8 trait points each).
 * spells: full spell id -> trait points contributed.
-*
-* Tier labels marked with * require 100+ Blue Mage Job Points (1 gift) and **
-* require 1200+ Job Points (2 gifts). These tiers are only reachable with the
-* corresponding Job Point trait bonus gifts enabled.
 --]]
 data.traits = T{
     T{ name='Accuracy Bonus', gift_exempt=false,
@@ -250,31 +260,24 @@ function data.compute_traits(ids, gifts)
             return;
         end
 
-        -- Apply job point gift bonus (+8 per gift) unless the trait is exempt..
+        -- Apply the job point gift bonus: each gift adds 8 trait points. This
+        -- only applies when the trait already has points (guaranteed here, since
+        -- base > 0) and not to gift-exempt traits.
         local effective = base;
         if (not trait.gift_exempt) then
-            effective = effective + (8 * gifts);
+            effective = effective + (POINTS_PER_TIER * gifts);
         end
 
-        -- Determine the highest tier reached and the next tier threshold.
-        --
-        -- Tiers whose label carries asterisks require Blue Mage Job Point gifts
-        -- to unlock (one '*' per gift). Without enough gifts they are not
-        -- attainable at all - even if the set-point total crosses the
-        -- threshold - so a trait caps at its highest non-asterisk tier from set
-        -- points alone (and a sub job, which has no job points, never reaches
-        -- an asterisk tier).
-        local label = nil;
+        -- Each tier needs 8 trait points (tier N = 8*N). The number of tiers the
+        -- trait defines is its maximum attainable tier.
+        local maxtier  = #trait.tiers;
+        local tier_num = math.floor(effective / POINTS_PER_TIER);
+        if (tier_num > maxtier) then tier_num = maxtier; end
+
+        local label = (tier_num >= 1) and ROMAN[tier_num] or nil;
         local nextpts = nil;
-        for _, tier in ipairs(trait.tiers) do
-            local _, stars = tier[2]:gsub('%*', '');
-            if (gifts >= stars) then
-                if (effective >= tier[1]) then
-                    label = tier[2];
-                elseif (nextpts == nil) then
-                    nextpts = tier[1];
-                end
-            end
+        if (tier_num < maxtier) then
+            nextpts = (tier_num + 1) * POINTS_PER_TIER;
         end
 
         results:append(T{
