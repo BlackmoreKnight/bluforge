@@ -658,6 +658,45 @@ function ui.save_set(name)
 end
 
 --[[
+* Validates whether a set fits the current Blue Mage allowance (level, slot
+* count, and set points). Returns ok(boolean), reason(string).
+*
+* In planning mode (not BLU, no level to gate against) any set is allowed.
+*
+* @param {table} ids - Slot-indexed list of full spell ids (0/nil for empty).
+--]]
+function ui.validate_set(ids)
+    local lvl = ui.blu_level();
+    if (lvl <= 0) then return true; end   -- planning mode: nothing to enforce
+
+    local slotmax = ui.max_slots();
+    local maxpts  = ui.max_points();
+    local count   = 0;
+    local total   = 0;
+
+    for i = 1, MAX_SLOTS do
+        local id = ids[i];
+        if (id ~= nil and id > 0) then
+            count = count + 1;
+            total = total + data.get_cost(id);
+
+            local entry = ui.byid[id];
+            if (entry ~= nil and entry.level > lvl) then
+                return false, ('contains %s (Lv.%d), above your BLU level %d'):fmt(entry.name, entry.level, lvl);
+            end
+        end
+    end
+
+    if (count > slotmax) then
+        return false, ('uses %d spells but only %d slot(s) are available at your level'):fmt(count, slotmax);
+    end
+    if (maxpts > 0 and total > maxpts) then
+        return false, ('needs %d set points but only %d are available'):fmt(total, maxpts);
+    end
+    return true;
+end
+
+--[[
 * Loads a named set file into the working set.
 --]]
 function ui.load_set(name)
@@ -675,8 +714,9 @@ function ui.load_set(name)
         return;
     end
 
-    -- Reset the working set then fill it in slot order..
-    for i = 1, MAX_SLOTS do ui.set[i] = 0; end
+    -- Read into a temporary set first, in slot order..
+    local temp = T{};
+    for i = 1, MAX_SLOTS do temp[i] = 0; end
 
     local slot = 1;
     for line in f:lines() do
@@ -684,13 +724,24 @@ function ui.load_set(name)
         if (line ~= '' and slot <= MAX_SLOTS) then
             local res = AshitaCore:GetResourceManager():GetSpellByName(line, 0);
             if (res ~= nil and res.Index >= 512 and res.Index < 1024) then
-                ui.set[slot] = res.Index;
+                temp[slot] = res.Index;
             end
         end
         slot = slot + 1;
     end
     f:close();
 
+    -- Refuse to load a set that exceeds the current job's allowance; loading it
+    -- anyway would only apply an empty/partial set in-game..
+    local ok, reason = ui.validate_set(temp);
+    if (not ok) then
+        ui.set_status(('Cannot load "%s": %s.'):fmt(name, reason));
+        print(chat.header(addon.name):append(chat.error(('Cannot load set "%s": %s.'):fmt(name, reason))));
+        return;
+    end
+
+    -- Commit the validated set..
+    for i = 1, MAX_SLOTS do ui.set[i] = temp[i]; end
     ui.set_name[1] = name;
     ui.set_status(('Loaded set: %s'):fmt(name));
 end
@@ -724,6 +775,15 @@ function ui.apply_set()
     if (not blu.is_blu_main() and not blu.is_blu_sub()) then
         ui.set_status('You must be BLU main or sub to set spells.');
         print(chat.header(addon.name):append(chat.error('You must be BLU main or sub to set spells.')));
+        return;
+    end
+
+    -- Refuse to apply a set that exceeds the current job's allowance (e.g. a
+    -- main-job set while subbed); doing so would only set an empty/partial set..
+    local ok, reason = ui.validate_set(ui.set);
+    if (not ok) then
+        ui.set_status(('Cannot apply: %s.'):fmt(reason));
+        print(chat.header(addon.name):append(chat.error(('Cannot apply set: %s.'):fmt(reason))));
         return;
     end
 
