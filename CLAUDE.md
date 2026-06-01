@@ -7,8 +7,16 @@ Operational context for AI coding sessions working on this addon. Read this firs
 BluSets-style spell setting with a BluCheck-inspired ImGui UI and a job-trait planner.
 
 - Repo: https://github.com/BlackmoreKnight/bluforge
-- Lives in the Ashita `addons/bluforge` directory.
 - Derived from atom0s' BluSets / BluCheck (Ashita Development Team). Licensed GPL-3.0.
+
+## Development layout (dev vs runtime are kept separate)
+- **Development / git repo (source of truth):** `E:\AshitaDev\bluforge`. All git work — commits, pushes, the
+  workflow, README/LICENSE/docs, `build.ps1`, `deploy.ps1` — happens here. This is the only checkout.
+- **In-game runtime copy:** the Ashita `addons\bluforge` directory holds **only the files needed to run** the
+  addon (`bluforge.lua`, `blu.lua`, `ui.lua`, `data/bludata.lua`, `data/spells.json`). It is **not** a git
+  checkout and should never contain `.git`, docs, or tooling.
+- After changing code in the dev repo, run `.\deploy.ps1` to copy the runtime files into the addons directory
+  so the changes take effect in-game. Do all editing in the dev repo, never in the runtime copy.
 
 ## Compatibility (important)
 Tested **only on retail FFXI with Ashita v4.30**. Memory signatures (in `blu.lua`) and packet behavior may
