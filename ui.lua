@@ -49,6 +49,11 @@ local defaults = T{
 -- The number of Blue Magic set slots. (Matches the in-game maximum.)
 local MAX_SLOTS = 20;
 
+-- Packet delay floors (seconds). The entry box accepts any value, but anything
+-- below the fast minimum is raised to it; safe mode is rate limited to 1.0s.
+local FAST_MIN_DELAY = 0.10;
+local SAFE_MIN_DELAY = 1.00;
+
 --==========================================================================
 -- Blue Mage memory / packet helpers
 --
@@ -232,7 +237,8 @@ local ui = {
     selected_set = { -1, },           -- Index into saved_sets for the load/delete combo.
 
     -- Apply state.
-    fast_delay = { 0.30, },           -- Delay between packets when applying.
+    fast_delay = { 0.30, },           -- Delay between packets when applying. (numeric source of truth)
+    delay_text = { '0.30', },         -- Text-entry buffer for the delay.
     safe_mode  = { true, },           -- true = safe packet mode, false = fast injection.
 
     -- Transient status line shown at the bottom of the window.
@@ -733,12 +739,12 @@ function ui.apply_set()
         end
     end
 
-    -- Select the packet mode from the toggle and clamp the delay. Safe mode is
-    -- rate limited by the client, so a minimum of 1.0s is enforced (as BluSets).
+    -- Select the packet mode from the toggle and clamp the delay. Anything below
+    -- the fast minimum is raised to it; safe mode is rate limited to 1.0s.
     blu.mode = ui.safe_mode[1] and 'safe' or 'fast';
     local delay = ui.fast_delay[1];
-    if (blu.mode == 'safe' and delay < 1.0) then delay = 1.0; end
-    if (delay < 0.1) then delay = 0.1; end
+    if (delay < FAST_MIN_DELAY) then delay = FAST_MIN_DELAY; end
+    if (blu.mode == 'safe' and delay < SAFE_MIN_DELAY) then delay = SAFE_MIN_DELAY; end
 
     ashita.tasks.once(1, (function (d, lst)
         -- Fully clear the current set first..
@@ -1094,12 +1100,19 @@ function ui.render_controls()
         imgui.SetTooltip('Safe: uses the game\'s own packet queue (rate limited, min 1.0s delay). Recommended.\nFast: custom packet injection - quicker but riskier.');
     end
 
-    imgui.PushItemWidth(120);
-    imgui.SliderFloat('Packet delay', ui.fast_delay, 0.1, 1.0, '%.2f sec');
+    -- Packet delay as a free-form numeric entry (seconds, any value)..
+    imgui.PushItemWidth(80);
+    if (imgui.InputText('Packet delay (sec)', ui.delay_text, 16)) then
+        local n = tonumber(ui.delay_text[1]);
+        if (n ~= nil) then ui.fast_delay[1] = n; end
+    end
     imgui.PopItemWidth();
-    if (ui.safe_mode[1]) then
-        imgui.SameLine();
-        imgui.TextColored(COLOR_DIM, '(min 1.0s in safe mode)');
+
+    -- Signify the effective minimum that will actually be used..
+    if (ui.fast_delay[1] < FAST_MIN_DELAY) then
+        imgui.TextColored({ 1.0, 0.6, 0.2, 1.0 }, ('Below minimum - %.2fs will be used.'):fmt(FAST_MIN_DELAY));
+    elseif (ui.safe_mode[1] and ui.fast_delay[1] < SAFE_MIN_DELAY) then
+        imgui.TextColored(COLOR_DIM, ('Safe mode raises this to %.2fs.'):fmt(SAFE_MIN_DELAY));
     end
 
     imgui.PushStyleColor(ImGuiCol_Button, { 0.15, 0.45, 0.75, 1.0 });
