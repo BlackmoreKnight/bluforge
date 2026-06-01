@@ -25,7 +25,7 @@ Tested **only on retail FFXI with Ashita v4.30**. The BLU memory signatures (the
 
 ## Files
 - `bluforge.lua` — addon entry: meta, events (load/command/packet_in/d3d_present), slash commands (`/bluforge`, `/bf`, `/bforge`).
-- `ui.lua` — all ImGui UI plus the inlined BLU memory/packet helpers (`blu` local, fast-mode only) vendored from BluSets' helper (atom0s). If upstream BluSets updates its signatures (e.g. a client patch), re-sync them here.
+- `ui.lua` — all ImGui UI plus the inlined BLU memory/packet helpers (`blu` local; both safe and fast modes, selected by a persisted toggle) vendored from BluSets' helper (atom0s). If upstream BluSets updates its signatures (e.g. a client patch), re-sync them here.
 - `data/bludata.lua` — set-point costs per spell + the job-trait table + `compute_traits()`.
 - `data/spells.json` — "learned from" data (zone → mobs), keyed by spell id. Zone keys may be numeric ids or zone-name strings.
 

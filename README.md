@@ -15,8 +15,9 @@ plus a job-trait planner.
   BLU main vs. sub job availability, and blocks assignments that would exceed your capacity.
 - **Save / load / delete** named spell sets. Set files are plain text (one spell name per line) and are
   cross-compatible with BluSets set files.
-- **Apply to game** — sets your Blue Magic in-game using BluSets' fast packet mode, fully clearing the current set
-  first and confirming the reset before writing the new spells.
+- **Apply to game** — sets your Blue Magic in-game, fully clearing the current set first and confirming the reset
+  before writing the new spells. A remembered **Safe mode** toggle chooses between BluSets' safe packet mode
+  (the game's own queued functions, rate limited) and fast custom packet injection.
 - **Trait planner** — identifies the job traits a set will grant, with tier thresholds and contributing spells. The
   Job Point trait-bonus level is detected automatically from your BLU job points spent.
 - **Spell information** — element, MP cost, cast/recast, level, set cost, the traits a spell contributes to, and the
@@ -42,7 +43,7 @@ Copy the `bluforge` folder into your Ashita `addons` directory, then load it in-
 | --- | --- |
 | `/bluforge` (or `/bf`, `/bforge`) | Toggle the BluForge window. |
 | `/bluforge load <name>` | Load the named spell set into the editor. |
-| `/bluforge apply` | Apply the current editor set to the game (fast mode). |
+| `/bluforge apply` | Apply the current editor set to the game (using the selected safe/fast mode). |
 | `/bluforge help` | Show command help. |
 
 ## Usage

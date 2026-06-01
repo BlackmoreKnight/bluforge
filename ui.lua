@@ -39,10 +39,11 @@ local function level_bracket(level)
     return idx;
 end
 
--- Persisted configuration defaults. (Spell browser toggles.)
+-- Persisted configuration defaults.
 local defaults = T{
     filter_known    = false,   -- "Known only" browser toggle.
     filter_settable = false,   -- "Hide non-settable" browser toggle.
+    safe_mode       = true,    -- Apply using safe packet mode (vs. fast injection).
 };
 
 -- The number of Blue Magic set slots. (Matches the in-game maximum.)
@@ -52,13 +53,15 @@ local MAX_SLOTS = 20;
 -- Blue Mage memory / packet helpers
 --
 -- Folded in from the BluSets 'blu' helper (atom0s, GPL-3.0) so the addon has
--- no dependency on the blusets addon being installed. Only the fast (custom
--- packet injection) path is kept, since BluForge always applies sets in fast
--- mode; the safe-mode client function and its signature are not needed.
+-- no dependency on the blusets addon being installed. Both packet modes are
+-- supported: 'safe' (the game's own queued functions, rate limited) and 'fast'
+-- (custom packet injection); the active mode is chosen by the UI toggle.
 --==========================================================================
 
--- FFI prototype for the BLU extended-equip packet. (0x0102 client to server)
+-- FFI prototypes for the BLU equip function / packet. (0x0102 client to server)
 ffi.cdef[[
+    typedef uint8_t (__cdecl *equipex_t)(uint8_t isSubJob, uint16_t jobType, uint16_t index, uint8_t id);
+
     typedef struct packet_equipex_c2s_t {
         uint16_t    IdSize;
         uint16_t    Sync;
@@ -75,8 +78,13 @@ ffi.cdef[[
 
 local blu = T{
     -- Memory signatures, resolved once at load.
-    offset = ffi.cast('uint32_t*', ashita.memory.find(0, 0, 'C1E1032BC8B0018D????????????B9????????F3A55F5E5B', 10, 0)),
-    points = ffi.cast('uint8_t***', ashita.memory.find(0, 0, 'A1????????33C98A4E5E33D28A565D5F5E8950148948185B83C414C20400', 1, 0)),
+    offset  = ffi.cast('uint32_t*', ashita.memory.find(0, 0, 'C1E1032BC8B0018D????????????B9????????F3A55F5E5B', 10, 0)),
+    points  = ffi.cast('uint8_t***', ashita.memory.find(0, 0, 'A1????????33C98A4E5E33D28A565D5F5E8950148948185B83C414C20400', 1, 0)),
+    equipex = ffi.cast('equipex_t', ashita.memory.find(0, 0, '8B0D????????81EC9C00000085C95356570F??????????8B', 0, 0)),
+
+    -- Packet sender mode: 'safe' uses the game's own queued functions (rate
+    -- limited); 'fast' uses custom packet injection. Set from the UI toggle.
+    mode = 'safe',
 };
 
 -- Returns true if the player's main job is BLU.
@@ -104,7 +112,16 @@ function blu.get_spells()
     return T(ashita.memory.read_array((ptr + blu.offset[0]) + (blu.is_blu_main() and 0x04 or 0xA0), 0x14));
 end
 
--- Builds a base extended-equip packet for the current job.
+-- Returns the raw BLU buffer pointer. (used by the safe-mode reset packet)
+function blu.get_blu_buffer_ptr()
+    local ptr = ashita.memory.read_uint32(AshitaCore:GetPointerManager():Get('inventory'));
+    if (ptr == 0) then return 0; end
+    ptr = ashita.memory.read_uint32(ptr);
+    if (ptr == 0) then return 0; end
+    return ptr + blu.offset[0] + (blu.is_blu_main() and 0x00 or 0x9C);
+end
+
+-- Builds a base extended-equip packet for the current job. (fast mode)
 local function blu_new_packet()
     return ffi.new('packet_equipex_c2s_t', {
         0x5302, 0x0000,
@@ -115,8 +132,8 @@ local function blu_new_packet()
     });
 end
 
--- Queues a reset of all BLU spells via custom packet injection. (fast)
-function blu.reset_all_spells()
+-- fast: reset all spells via custom packet injection.
+local function fast_reset_all_spells()
     local eqex = blu_new_packet();
     local spells = blu.get_spells();
     for x = 1, #spells do
@@ -126,7 +143,44 @@ function blu.reset_all_spells()
     AshitaCore:GetPacketManager():AddOutgoingPacket(0x102, packet);
 end
 
--- Queues a single BLU spell set (or unset, id == 0) via packet injection. (fast)
+-- fast: set/unset a single spell via custom packet injection.
+local function fast_set_spell(index, id)
+    local eqex = blu_new_packet();
+    if (id == 0) then
+        eqex.SpellId = 0;
+        eqex.Spells[index - 1] = blu.get_spells()[index];
+    else
+        eqex.SpellId = id;
+        eqex.Spells[index - 1] = id;
+    end
+    local packet = ffi.string(eqex, ffi.sizeof('packet_equipex_c2s_t')):totable();
+    AshitaCore:GetPacketManager():AddOutgoingPacket(0x102, packet);
+end
+
+-- safe: reset all spells using the game's own packet queue.
+local function safe_reset_all_spells()
+    AshitaCore:GetPacketManager():QueuePacket(0x102, 0xA4, 0x00, 0x00, 0x00, function (ptr)
+        local p = ffi.cast('uint8_t*', ptr);
+        ffi.fill(p + 0x04, 0xA0);
+        ffi.copy(p + 0x08, ffi.cast('uint8_t*', blu.get_blu_buffer_ptr()), 0x9C);
+    end);
+end
+
+-- safe: set/unset a single spell using the in-game equip function.
+local function safe_set_spell(index, id)
+    blu.equipex(blu.is_blu_main() == true and 0 or 1, 0x1000, index - 1, id);
+end
+
+-- Queues a reset of all BLU spells using the current mode.
+function blu.reset_all_spells()
+    if (blu.mode == 'fast') then
+        fast_reset_all_spells();
+        return;
+    end
+    safe_reset_all_spells();
+end
+
+-- Queues a single BLU spell set (or unset, id == 0) using the current mode.
 function blu.set_spell(index, id)
     if (index <= 0 or index > 20) then
         print(chat.header(addon.name):append(chat.error('Failed to set spell; invalid index. (Index: %d, Id: %d)')):fmt(index, id));
@@ -146,16 +200,11 @@ function blu.set_spell(index, id)
         return;
     end
 
-    local eqex = blu_new_packet();
-    if (id == 0) then
-        eqex.SpellId = 0;
-        eqex.Spells[index - 1] = spells[index];
-    else
-        eqex.SpellId = id;
-        eqex.Spells[index - 1] = id;
+    if (blu.mode == 'fast') then
+        fast_set_spell(index, id);
+        return;
     end
-    local packet = ffi.string(eqex, ffi.sizeof('packet_equipex_c2s_t')):totable();
-    AshitaCore:GetPacketManager():AddOutgoingPacket(0x102, packet);
+    safe_set_spell(index, id);
 end
 
 local ui = {
@@ -183,7 +232,8 @@ local ui = {
     selected_set = { -1, },           -- Index into saved_sets for the load/delete combo.
 
     -- Apply state.
-    fast_delay = { 0.30, },           -- Delay between fast-mode packets when applying.
+    fast_delay = { 0.30, },           -- Delay between packets when applying.
+    safe_mode  = { true, },           -- true = safe packet mode, false = fast injection.
 
     -- Transient status line shown at the bottom of the window.
     status        = '',
@@ -201,6 +251,7 @@ function ui.save_settings()
     if (ui.settings == nil) then return; end
     ui.settings.filter_known    = ui.filter_known[1];
     ui.settings.filter_settable = ui.filter_settable[1];
+    ui.settings.safe_mode       = ui.safe_mode[1];
     settings.save();
 end
 
@@ -330,12 +381,14 @@ function ui.load()
     ui.settings = settings.load(defaults);
     ui.filter_known[1]    = ui.settings.filter_known;
     ui.filter_settable[1] = ui.settings.filter_settable;
+    ui.safe_mode[1]       = ui.settings.safe_mode;
 
     -- Keep the toggles in sync if the settings block changes (character
     -- switch, manual reload, etc.)..
     settings.register('settings', 'bluforge_settings', function (s)
         ui.filter_known[1]    = s.filter_known;
         ui.filter_settable[1] = s.filter_settable;
+        ui.safe_mode[1]       = s.safe_mode;
     end);
 
     -- Load the BLU "learned from" data..
@@ -653,12 +706,13 @@ function ui.delete_set(name)
 end
 
 --==========================================================================
--- Apply to game (fast mode, from BluSets)
+-- Apply to game (safe / fast packet modes, from BluSets)
 --==========================================================================
 
 --[[
-* Applies the working set to the game using BluSets' fast packet mode. Resets
-* the current spells, then sets each slot with a short delay between packets.
+* Applies the working set to the game. Resets the current spells, then sets
+* each slot with a delay between packets, using the mode selected in the UI
+* (safe = the game's own queued functions; fast = custom packet injection).
 --]]
 function ui.apply_set()
     if (not blu.is_blu_main() and not blu.is_blu_sub()) then
@@ -679,8 +733,11 @@ function ui.apply_set()
         end
     end
 
-    -- Spells are always applied in fast mode; clamp the configured delay.
+    -- Select the packet mode from the toggle and clamp the delay. Safe mode is
+    -- rate limited by the client, so a minimum of 1.0s is enforced (as BluSets).
+    blu.mode = ui.safe_mode[1] and 'safe' or 'fast';
     local delay = ui.fast_delay[1];
+    if (blu.mode == 'safe' and delay < 1.0) then delay = 1.0; end
     if (delay < 0.1) then delay = 0.1; end
 
     ashita.tasks.once(1, (function (d, lst)
@@ -720,8 +777,8 @@ function ui.apply_set()
         print(chat.header(addon.name):append(chat.message('Finished applying blue magic spell set.')));
     end):bindn(delay, plan));
 
-    ui.set_status('Applying set (fast mode)...');
-    print(chat.header(addon.name):append(chat.message('Applying blue magic spell set (fast); please wait..')));
+    ui.set_status(('Applying set (%s mode)...'):fmt(blu.mode));
+    print(chat.header(addon.name):append(chat.message(('Applying blue magic spell set (%s); please wait..'):fmt(blu.mode))));
 end
 
 --==========================================================================
@@ -1030,12 +1087,24 @@ function ui.render_controls()
     imgui.Separator();
 
     -- Apply controls..
+    if (imgui.Checkbox('Safe mode', ui.safe_mode)) then
+        ui.save_settings();
+    end
+    if (imgui.IsItemHovered()) then
+        imgui.SetTooltip('Safe: uses the game\'s own packet queue (rate limited, min 1.0s delay). Recommended.\nFast: custom packet injection - quicker but riskier.');
+    end
+
     imgui.PushItemWidth(120);
     imgui.SliderFloat('Packet delay', ui.fast_delay, 0.1, 1.0, '%.2f sec');
     imgui.PopItemWidth();
+    if (ui.safe_mode[1]) then
+        imgui.SameLine();
+        imgui.TextColored(COLOR_DIM, '(min 1.0s in safe mode)');
+    end
 
     imgui.PushStyleColor(ImGuiCol_Button, { 0.15, 0.45, 0.75, 1.0 });
-    if (imgui.Button('Apply to Game (Fast)', { 200, 0 })) then
+    local apply_label = ('Apply to Game (%s)'):fmt(ui.safe_mode[1] and 'Safe' or 'Fast');
+    if (imgui.Button(apply_label, { 200, 0 })) then
         ui.apply_set();
     end
     imgui.PopStyleColor();
