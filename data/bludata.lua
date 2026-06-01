@@ -256,14 +256,24 @@ function data.compute_traits(ids, gifts)
             effective = effective + (8 * gifts);
         end
 
-        -- Determine the highest tier reached and the next tier threshold..
+        -- Determine the highest tier reached and the next tier threshold.
+        --
+        -- Tiers whose label carries asterisks require Blue Mage Job Point gifts
+        -- to unlock (one '*' per gift). Without enough gifts they are not
+        -- attainable at all - even if the set-point total crosses the
+        -- threshold - so a trait caps at its highest non-asterisk tier from set
+        -- points alone (and a sub job, which has no job points, never reaches
+        -- an asterisk tier).
         local label = nil;
         local nextpts = nil;
         for _, tier in ipairs(trait.tiers) do
-            if (effective >= tier[1]) then
-                label = tier[2];
-            elseif (nextpts == nil) then
-                nextpts = tier[1];
+            local _, stars = tier[2]:gsub('%*', '');
+            if (gifts >= stars) then
+                if (effective >= tier[1]) then
+                    label = tier[2];
+                elseif (nextpts == nil) then
+                    nextpts = tier[1];
+                end
             end
         end
 
