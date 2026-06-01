@@ -19,7 +19,7 @@
 
 addon.name      = 'bluforge';
 addon.author    = 'BlackmoreKnight, derived from atom0s BluSets/BluCheck';
-addon.version   = '1.3';
+addon.version   = '1.4';
 addon.desc      = 'Blue Mage spell set manager with an ImGui UI and trait planner.';
 addon.link      = 'https://github.com/BlackmoreKnight/bluforge';
 
